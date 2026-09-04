@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Loop Player · 手势语音控制</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>">
+<style>
+/* ============ 设计参考: glassmorphism music player + browser DAW ============ */
+:root {
+  --bg: #0a0c14;
+  --text: #e8ecf4; --muted: #8b92a8; --dim: #5b6275;
+  --cyan: #38d9f5; --violet: #7c8cff; --pink: #ff5c8a; --amber: #ffb457;
+  --glass: linear-gradient(160deg, rgba(255,255,255,.055), rgba(255,255,255,.018));
+  --stroke: rgba(255,255,255,.09);
+  --radius: 16px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scrollbar-color: #2a2f3f transparent; }
+body {
+  background: var(--bg); color: var(--text);
+  font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center;
+  padding: 22px 16px 30px; gap: 14px; overflow-x: hidden;
+}
+::selection { background: rgba(56,217,245,.28); }
+
+/* ---------- 极光背景 ---------- */
+.bg { position: fixed; inset: 0; z-index: -1; overflow: hidden; pointer-events: none; }
+.bg i { position: absolute; border-radius: 50%; filter: blur(90px); opacity: .55; }
+.bg .b1 { width: 560px; height: 560px; left: -140px; top: -160px;
+  background: radial-gradient(circle, rgba(34,211,238,.17), transparent 65%);
+  animation: drift1 26s ease-in-out infinite alternate; }
+.bg .b2 { width: 620px; height: 620px; right: -180px; top: 22%;
+  background: radial-gradient(circle, rgba(124,92,255,.15), transparent 65%);
+  animation: drift2 32s ease-in-out infinite alternate; }
+.bg .b3 { width: 520px; height: 520px; left: 24%; bottom: -220px;
+  background: radial-gradient(circle, rgba(255,92,138,.10), transparent 65%);
+  animation: drift3 38s ease-in-out infinite alternate; }
+.bg::after { content: ''; position: absolute; inset: 0; opacity: .05;
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/></filter><rect width='140' height='140' filter='url(%23n)' opacity='.5'/></svg>"); }
+@keyframes drift1 { to { transform: translate(70px, 50px) scale(1.12); } }
+@keyframes drift2 { to { transform: translate(-60px, -70px) scale(1.08); } }
+@keyframes drift3 { to { transform: translate(50px, -40px) scale(1.15); } }
+
+/* ---------- 顶栏 ---------- */
+.top { width: min(1080px, 96vw); display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 12px; }
+h1 { font-size: 21px; font-weight: 700; letter-spacing: .02em; }
+.badge {
+  font-size: 10px; font-weight: 800; letter-spacing: .18em; color: var(--cyan);
+  border: 1px solid rgba(56,217,245,.4); border-radius: 6px; padding: 2px 7px 1px;
+  background: rgba(56,217,245,.08); text-shadow: 0 0 12px rgba(56,217,245,.6);
+}
+.eq { display: flex; align-items: flex-end; gap: 3px; height: 22px; }
+.eq i { width: 4px; border-radius: 2px; background: linear-gradient(180deg, var(--cyan), var(--violet));
+  box-shadow: 0 0 8px rgba(56,217,245,.5); animation: eq 1.15s ease-in-out infinite; }
+.eq i:nth-child(1) { height: 40%; animation-delay: 0s; }
+.eq i:nth-child(2) { height: 90%; animation-delay: .18s; }
+.eq i:nth-child(3) { height: 60%; animation-delay: .36s; }
+.eq i:nth-child(4) { height: 100%; animation-delay: .54s; }
+@keyframes eq { 0%,100% { transform: scaleY(.45); } 50% { transform: scaleY(1); } }
+.stat {
+  font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px;
+  background: var(--glass); border: 1px solid var(--stroke); border-radius: 99px;
+  padding: 6px 14px; backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.stat::before { content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--cyan); box-shadow: 0 0 8px var(--cyan); animation: blink 2.4s infinite; }
+@keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* ---------- 毛玻璃面板 ---------- */
+.panel {
+  background: var(--glass); border: 1px solid var(--stroke); border-radius: var(--radius);
+  backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+  box-shadow: 0 12px 34px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.06);
+  padding: 16px 18px; width: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.sec { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700;
+  letter-spacing: .16em; color: var(--dim); user-select: none; }
+.sec::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, rgba(255,255,255,.10), transparent); }
+.sec span { font-weight: 500; letter-spacing: .08em; color: var(--dim); opacity: .8; }
+
+/* ---------- 按钮 ---------- */
+.row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+button {
+  position: relative; display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(255,255,255,.055); color: var(--text); border: 1px solid var(--stroke);
+  border-radius: 12px; padding: 10px 20px; font-size: 14px; font-family: inherit; cursor: pointer;
+  transition: background .18s, transform .18s, box-shadow .18s, border-color .18s;
+}
+button::before { content: ''; width: 15px; height: 15px; flex: none; background: no-repeat center / contain; }
+#startBtn::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23071321' stroke-width='2.4' stroke-linecap='round'><path d='M12 3v8'/><path d='M6.2 6.8a8 8 0 1 0 11.6 0'/></svg>"); }
+#playBtn::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23dfe7f3'><path d='M8 5.4v13.2L19 12z'/></svg>"); }
+#playBtn.playing::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23fff'><rect x='6.6' y='5' width='3.8' height='14' rx='1.3'/><rect x='13.6' y='5' width='3.8' height='14' rx='1.3'/></svg>"); }
+#camBtn::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23dfe7f3' stroke-width='2'><rect x='3' y='7' width='13' height='11' rx='2.5'/><path d='M16 10.6 21 8.3v7.4l-5-2.3' stroke-linejoin='round'/></svg>"); }
+#micBtn::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23dfe7f3' stroke-width='2' stroke-linecap='round'><rect x='9.2' y='3' width='5.6' height='11.2' rx='2.8'/><path d='M6 11.6a6 6 0 0 0 12 0'/><path d='M12 17.6V21'/></svg>"); }
+#micBtn.playing::before { background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round'><rect x='9.2' y='3' width='5.6' height='11.2' rx='2.8'/><path d='M6 11.6a6 6 0 0 0 12 0'/><path d='M12 17.6V21'/></svg>"); }
+button:hover:not(:disabled) { background: rgba(255,255,255,.10); transform: translateY(-1px); }
+button:active:not(:disabled) { transform: translateY(0); }
+button:disabled { opacity: .35; cursor: default; }
+button.primary {
+  background: linear-gradient(135deg, #2fd4f0, #7c8cff); color: #04121e; font-weight: 700;
+  border-color: transparent; box-shadow: 0 6px 22px -6px rgba(56,217,245,.55);
+}
+button.primary:hover:not(:disabled) { box-shadow: 0 8px 28px -6px rgba(56,217,245,.8); filter: brightness(1.07); }
+button.playing {
+  background: linear-gradient(135deg, #ff9a3d, var(--pink)); color: #fff; font-weight: 600;
+  border-color: transparent; box-shadow: 0 6px 22px -6px rgba(255,110,130,.6);
+}
+button.mini { padding: 5px 12px; font-size: 12px; border-radius: 8px; }
+button.mini::before { display: none; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.chip {
+  font-size: 12px; color: var(--muted); border: 1px solid var(--stroke); border-radius: 99px;
+  padding: 5px 13px; background: rgba(255,255,255,.03);
+}
+
+/* ---------- 轨道混音台 ---------- */
+.grid { width: min(1080px, 96vw); display: grid; grid-template-columns: 1fr 330px; gap: 14px; align-items: start; }
+.colR { display: flex; flex-direction: column; gap: 14px; }
+.track {
+  --tc: #4a90d9;
+  display: grid; grid-template-columns: 14px 52px 42px 1fr 46px; align-items: center; gap: 10px;
+  background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px; padding: 9px 13px; transition: border-color .2s, box-shadow .2s, background .2s;
+}
+.track:has(input:checked) {
+  border-color: color-mix(in oklab, var(--tc) 45%, transparent);
+  box-shadow: 0 0 20px -8px var(--tc), inset 0 1px 0 rgba(255,255,255,.06);
+  background: color-mix(in oklab, var(--tc) 7%, rgba(255,255,255,.03));
+}
+.track .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--tc); opacity: .45; transition: .2s; }
+.track:has(input:checked) .dot { opacity: 1; box-shadow: 0 0 10px var(--tc); transform: scale(1.2); }
+.track .name { font-weight: 600; font-size: 13.5px; letter-spacing: .02em; }
+.track .vol { text-align: right; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* 开关 */
+input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; width: 40px; height: 22px; flex: none;
+  border-radius: 99px; background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.13);
+  position: relative; cursor: pointer; transition: .2s;
+}
+input[type=checkbox]::before {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
+  border-radius: 50%; background: #aab3c5; transition: .2s;
+}
+input[type=checkbox]:checked { background: color-mix(in oklab, var(--tc) 50%, rgba(0,0,0,.25)); border-color: var(--tc); }
+input[type=checkbox]:checked::before { left: 20px; background: #fff; box-shadow: 0 0 8px var(--tc); }
+input[type=checkbox]:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+/* 滑杆 */
+input[type=range] {
+  -webkit-appearance: none; appearance: none; height: 18px; background: transparent;
+  flex: 1; min-width: 110px; cursor: pointer;
+}
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: rgba(255,255,255,.10); }
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%;
+  background: #eaf3ff; border: none;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.07), 0 0 12px var(--tc, var(--cyan));
+  transition: transform .15s;
+}
+input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.18); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 4px; background: rgba(255,255,255,.10); }
+input[type=range]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%; background: #eaf3ff; border: none;
+  box-shadow: 0 0 0 3px rgba(255,255,255,.07), 0 0 12px var(--tc, var(--cyan));
+}
+
+/* ---------- Master FX ---------- */
+.bar { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+.bar .lbl { width: 52px; flex: none; }
+.bar input[type=range] { flex: 1; }
+.bar .val { min-width: 78px; text-align: right; font-variant-numeric: tabular-nums; color: var(--text); font-size: 12px; }
+
+/* ---------- HUD ---------- */
+#hud { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.pill {
+  background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.07); border-radius: 10px;
+  padding: 8px 10px; font-size: 11px; color: var(--dim); text-align: left;
+  display: flex; flex-direction: column; gap: 3px; font-variant-numeric: tabular-nums;
+}
+.pill b { color: var(--text); font-size: 15px; font-weight: 700; letter-spacing: .02em; }
+.pill.hot b { color: var(--cyan); text-shadow: 0 0 14px rgba(56,217,245,.55); }
+
+/* ---------- 语音状态 / 设备 ---------- */
+#voiceBar { display: none; }
+#voiceBar.on { display: flex; align-items: center; gap: 10px; padding-top: 2px; }
+#voiceBar .vstat { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 8px; }
+#voiceBar .vstat::before { content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--amber); box-shadow: 0 0 10px var(--amber); animation: blink 1.1s infinite; }
+#voiceBar .vstat b { color: var(--text); }
+#lastCmd {
+  background: rgba(56,217,245,.09); border: 1px solid rgba(56,217,245,.35); border-radius: 99px;
+  padding: 6px 18px; font-size: 13px; color: var(--cyan); display: none; max-width: 100%;
+  box-shadow: 0 0 18px -4px rgba(56,217,245,.4); backdrop-filter: blur(10px);
+}
+.cmdRow { display: flex; justify-content: center; width: min(1080px, 96vw); min-height: 0; }
+#devRow { display: none; align-items: center; gap: 8px; flex-wrap: wrap; padding-top: 2px; }
+#devRow.on { display: flex; }
+#devRow label { font-size: 12px; color: var(--muted); }
+#devRow select {
+  background: rgba(255,255,255,.05); color: var(--text); border: 1px solid var(--stroke);
+  border-radius: 8px; padding: 5px 8px; font-size: 12px; max-width: 210px; font-family: inherit;
+}
+#devRow select option { background: #141826; }
+
+/* ---------- 摄像头 ---------- */
+#videoWrap {
+  display: none; width: min(720px, 96vw);
+  background: var(--glass); border: 1px solid var(--stroke); border-radius: var(--radius);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+  box-shadow: 0 12px 34px rgba(0,0,0,.38); padding: 10px;
+}
+.vframe { position: relative; border-radius: 11px; overflow: hidden; background: #000; }
+#cam { width: 100%; display: block; transform: scaleX(-1); }
+#camCanvas { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+#gestureOverlay { position: absolute; top: 10px; left: 10px; display: flex; gap: 8px; pointer-events: none; }
+.ov {
+  background: rgba(8,10,18,.6); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(8px);
+  border-radius: 9px; padding: 5px 11px; font-size: 11px; color: rgba(255,255,255,.75);
+  font-variant-numeric: tabular-nums;
+}
+.ov b { color: var(--cyan); }
+.vcap { text-align: center; font-size: 11.5px; color: var(--dim); padding: 8px 4px 2px; }
+
+/* ---------- 页脚 ---------- */
+.foot {
+  width: min(1080px, 96vw); text-align: center; font-size: 11.5px; color: var(--dim);
+  padding-top: 2px; line-height: 1.8;
+}
+.foot b { color: var(--muted); font-weight: 600; }
+
+/* ---------- 响应式 & 无障碍 ---------- */
+@media (max-width: 920px) {
+  .grid { grid-template-columns: 1fr; }
+  #hud { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 560px) {
+  body { padding: 14px 10px 24px; }
+  .top { justify-content: center; text-align: center; }
+  .track { grid-template-columns: 12px 48px 40px 1fr 42px; gap: 7px; padding: 8px 10px; }
+  button { padding: 9px 14px; font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bg i, .eq i, .stat::before, #voiceBar .vstat::before { animation: none; }
+}
+</style>
+</head>
+<body>
+  <div class="bg" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+
+  <header class="top">
+    <div class="brand">
+      <div class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+      <h1>Loop Player</h1>
+      <span class="badge">WEB</span>
+    </div>
+    <span class="stat" id="status">点击「启动」开始（浏览器需要用户点击才能播放声音）</span>
+  </header>
+
+  <div class="panel deck" style="width:min(1080px,96vw)">
+    <div class="row">
+      <button id="startBtn" class="primary">启动</button>
+      <button id="playBtn" disabled>开始</button>
+      <button id="camBtn" disabled>摄像头</button>
+      <button id="micBtn" disabled>语音</button>
+      <span class="chip" id="loadStatus">音频未加载</span>
+    </div>
+    <div id="voiceBar">
+      <span class="vstat">状态: <b id="voiceStat">待命</b> · 最近识别: <b id="lastText">--</b></span>
+    </div>
+    <div id="devRow">
+      <label>摄像头</label><select id="camSel"></select>
+      <label>麦克风</label><select id="micSel"></select>
+      <button id="devRefresh" class="mini">刷新设备</button>
+    </div>
+  </div>
+
+  <div class="cmdRow"><div id="lastCmd"></div></div>
+
+  <main class="grid">
+    <div class="panel" id="trackPanel" style="display:none">
+      <div class="sec">TRACKS<span>混音台</span></div>
+      <div class="track" data-idx="0" style="--tc:#4a90d9"><span class="dot"></span><span class="name">Pad</span><input type="checkbox"><input type="range" min="0" max="150" value="30"><span class="vol">0.30</span></div>
+      <div class="track" data-idx="1" style="--tc:#e07050"><span class="dot"></span><span class="name">Pluck</span><input type="checkbox"><input type="range" min="0" max="150" value="30"><span class="vol">0.30</span></div>
+      <div class="track" data-idx="2" style="--tc:#50c870"><span class="dot"></span><span class="name">Bass</span><input type="checkbox"><input type="range" min="0" max="150" value="30"><span class="vol">0.30</span></div>
+      <div class="track" data-idx="3" style="--tc:#c080e0"><span class="dot"></span><span class="name">Bell</span><input type="checkbox"><input type="range" min="0" max="150" value="30"><span class="vol">0.30</span></div>
+      <div class="track" data-idx="4" style="--tc:#e0a040"><span class="dot"></span><span class="name">Drum</span><input type="checkbox"><input type="range" min="0" max="150" value="30"><span class="vol">0.30</span></div>
+      <div class="track" data-idx="5" style="--tc:#c0c0ff"><span class="dot"></span><span class="name">Man</span><input type="checkbox"><input type="range" min="0" max="150" value="30"><span class="vol">0.30</span></div>
+    </div>
+
+    <div class="colR">
+      <div class="panel" id="fxPanel" style="display:none">
+        <div class="sec">MASTER<span>总控</span></div>
+        <div class="bar"><span class="lbl">总音量</span><input id="masterVol" type="range" min="0" max="100" value="100"><span class="val">1.00</span></div>
+        <div class="bar"><span class="lbl">总滤波</span><input id="masterFil" type="range" min="0" max="10" value="10"><span class="val">20000 Hz</span></div>
+        <div class="bar"><span class="lbl">共鸣</span><input id="masterRes" type="range" min="0" max="100" value="0"><span class="val">0.00</span></div>
+        <div class="bar"><span class="lbl">总混响</span><input id="masterRev" type="range" min="0" max="100" value="0"><span class="val">0.00</span></div>
+      </div>
+
+      <div class="panel" id="hudPanel" style="display:none">
+        <div class="sec">PERFORMANCE<span>实时</span></div>
+        <div id="hud">
+          <div class="pill">音量<b id="hudVol">1.00</b></div>
+          <div class="pill">滤波<b id="hudFil">20000</b></div>
+          <div class="pill hot">和弦<b id="hudChord">--</b></div>
+          <div class="pill hot">音符<b id="hudNote">--</b></div>
+          <div class="pill">小节<b id="hudBar">1/8</b></div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <div id="videoWrap">
+    <div class="vframe">
+      <video id="cam" autoplay playsinline muted></video>
+      <canvas id="camCanvas"></canvas>
+      <div id="gestureOverlay">
+        <div class="ov">右手 <b id="ovR">--</b></div>
+        <div class="ov">左手 <b id="ovL">--</b></div>
+      </div>
+    </div>
+    <div class="vcap">右手＝音高 / 音量 · 左手＝滤波 / 混响（随 Man 开关切换）· 手离开保持最后值</div>
+  </div>
+
+  <footer class="foot">
+    语音命令：<b>start · pause · pad · pluck · bass · bell · drum · man</b> · 关闭轨道说 <b>no drum</b> 等<br>
+    和弦进行 F → G → Em → Am → Dm → G → C → E · 120 BPM · 8 小节循环
+  </footer>
+
+
+<script type="module">
+/* ============================================================
+   Loop Player Web — WAV loops + Web Audio Man synth + MediaPipe
+   逻辑对齐桌面版 sylenth1_x3_loop.py:
+   - 6轨: Pad/Pluck/Bass/Bell(WAV) Drum(WAV) Man(合成器)
+   - 和弦 F→G→Em→Am→Dm→G→C→E 每和弦4小节, 16小节循环 @120BPM
+   - Man开: 右手Y→和弦内音符(5%滞回), 左手Y→Man滤波
+   - Man关: 右手Y→总音量, 左手Y→总混响
+   - 手离开保持最后值
+   ============================================================ */
+
+const SR_TARGET = 48000;           // AudioContext 采样率(本机)
+const BPM = 120;
+const BAR_SEC = 4 * 60 / BPM;      // 2s
+const LOOP_SEC = 8 * BAR_SEC;      // 16s —— 与桌面版 705600 帧一致, WAV 也正好 16s
+const CHORD_SEC = BAR_SEC;         // 桌面版: 每和弦 88200 帧 = 1 小节
+
+// 桌面版 CHORD_TONES (MIDI)
+const CHORD_TONES = {
+  'F':  [53, 57, 60, 65, 69, 72],
+  'G':  [55, 59, 62, 67, 71, 74],
+  'Em': [52, 55, 59, 64, 67, 71],
+  'Am': [57, 60, 64, 69, 72, 76],
+  'Dm': [50, 53, 57, 62, 65, 69],
+  'C':  [60, 64, 67, 72, 76, 79],
+  'E':  [52, 56, 59, 64, 68, 71],
+};
+const CHORD_ORDER = ['F','G','Em','Am','Dm','G','C','E'];
+const NOTE_NAMES = ['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+const midiHz = m => 440 * Math.pow(2, (m - 69) / 12);
+const midiName = m => NOTE_NAMES[m % 12] + (Math.floor(m / 12) - 1);
+
+const TRACKS = [
+  { name: 'Pad',   file: 'Audio/pad2.wav',   color: '#4a90d9' },
+  { name: 'Pluck', file: 'Audio/pluck2.wav', color: '#e07050' },
+  { name: 'Bass',  file: 'Audio/bass2.wav',  color: '#50c870' },
+  { name: 'Bell',  file: 'Audio/bell2.wav',  color: '#c080e0' },
+  { name: 'Drum',  file: 'Drum/drum2.wav',   color: '#e0a040' },
+  { name: 'Man',   file: null,               color: '#c0c0ff' },  // synth
+];
+
+// ---------- 状态 ----------
+const S = {
+  ctx: null, master: null, masterGain: null, masterFilter: null,
+  comp: null, reverb: null, revWet: null, revDry: null,
+  trackGain: [], trackOn: [], trackVol: [],
+  buffers: {},           // idx -> AudioBuffer
+  playing: false,
+  startAt: 0,            // ctx.currentTime when loop started
+  masterVol: 1.0, masterFilHz: 20000, masterRes: 0, masterRevAmt: 0,
+  gesture: { active: false, rightY: null, leftY: null },
+  smoothRY: -1, lastRYForNote: -1, gestureNote: null, lastChordSeen: null,
+  manNodes: null,        // {osc1,osc2,osc3,gain,filt,lfo}
+  hud: null,
+};
+
+// ---------- 工具 ----------
+const $ = id => document.getElementById(id);
+const clamp01 = v => Math.max(0, Math.min(1, v));
+const GY_MIN = 0.3, GY_MAX = 1.0;
+const calY = y => clamp01((y - GY_MIN) / (GY_MAX - GY_MIN));
+
+function loopPos() { // 0..LOOP_SEC
+  if (!S.playing) return 0;
+  return ((S.ctx.currentTime - S.startAt) % LOOP_SEC + LOOP_SEC) % LOOP_SEC;
+}
+function chordAt(posSec) {
+  const idx = Math.min(7, Math.floor(posSec / CHORD_SEC));
+  return CHORD_ORDER[idx];
+}
+function gestureToNote(v, chordNotes) {
+  const vv = clamp01(1 - v);
+  let idx = Math.floor(vv * (chordNotes.length - 1));   // 桌面版: 无四舍五入
+  idx = Math.max(0, Math.min(idx, chordNotes.length - 1));
+  return chordNotes[idx];
+}
+
+// ---------- 启动 ----------
+async function boot() {
+  const btn = $('startBtn');
+  btn.disabled = true; btn.textContent = '加载中…';
+  try {
+    S.ctx = new AudioContext({ sampleRate: SR_TARGET });
+    await S.ctx.resume();
+
+    // 主链: source → trackGain → masterFilter → [dry → masterGain], [reverb → revWet → masterGain] → comp → dest
+    S.comp = S.ctx.createDynamicsCompressor();
+    S.comp.threshold.value = -10; S.comp.ratio.value = 6; S.comp.knee.value = 10;
+    S.masterGain = S.ctx.createGain();
+    S.masterFilter = S.ctx.createBiquadFilter();
+    S.masterFilter.type = 'lowpass'; S.masterFilter.frequency.value = 20000; S.masterFilter.Q.value = 0.0001;
+
+    // 混响 (简单 impulse)
+    S.reverb = S.ctx.createConvolver();
+    S.reverb.buffer = makeIR(2.2, 2.4);
+    S.revWet = S.ctx.createGain(); S.revWet.gain.value = 0;
+    S.revDry = S.ctx.createGain(); S.revDry.gain.value = 1;
+
+    S.masterFilter.connect(S.revDry).connect(S.masterGain);
+    S.masterFilter.connect(S.reverb).connect(S.revWet).connect(S.masterGain);
+    S.masterGain.connect(S.comp).connect(S.ctx.destination);
+
+    // 轨道增益
+    for (let i = 0; i < 6; i++) {
+      const g = S.ctx.createGain(); g.gain.value = 0;
+      g.connect(S.masterFilter);
+      S.trackGain.push(g);
+      S.trackOn.push(false); S.trackVol.push(0.30);
+    }
+
+    // 加载 WAV
+    const loads = TRACKS.map((t, i) => t.file ? fetch(t.file)
+      .then(r => { if (!r.ok) throw new Error(t.file + ' ' + r.status); return r.arrayBuffer(); })
+      .then(ab => S.ctx.decodeAudioData(ab))
+      .then(buf => { S.buffers[i] = buf; return t.name; })
+      .catch(e => { console.error('load fail', t.file, e); return null; })
+      : Promise.resolve('Man'));
+    const done = await Promise.all(loads);
+    const ok = done.filter(Boolean);
+    $('loadStatus').textContent = `已加载 ${ok.length - 1}/5 WAV · Man=合成器`;
+
+    // Man 合成器 (LD Follow 风格: saw+detune, 慢attack, 低通)
+    buildMan();
+
+    // UI
+    $('trackPanel').style.display = '';
+    $('fxPanel').style.display = '';
+    $('hudPanel').style.display = '';
+    $('playBtn').disabled = false;
+    $('camBtn').disabled = false;
+    $('micBtn').disabled = false;
+    $('status').textContent = '就绪。点「开始」播放';
+    btn.textContent = '已启动';
+    startHud();
+  } catch (e) {
+    console.error(e);
+    $('status').textContent = '启动失败: ' + e.message;
+    btn.disabled = false; btn.textContent = '重试';
+  }
+}
+
+function makeIR(sec, decay) {
+  const len = Math.floor(S.ctx.sampleRate * sec);
+  const buf = S.ctx.createBuffer(2, len, S.ctx.sampleRate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < len; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+    }
+  }
+  return buf;
+}
+
+// ---------- Man 合成器 ----------
+function buildMan() {
+  const ctx = S.ctx;
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 800; filt.Q.value = 1.2;
+  const amp = ctx.createGain(); amp.gain.value = 0;
+  // 3 saw detuned (supersaw feel, 接近 LD Follow)
+  const oscs = [];
+  const detunes = [-7, 0, 7];
+  for (let d of detunes) {
+    const o = ctx.createOscillator();
+    o.type = 'sawtooth'; o.frequency.value = 220; o.detune.value = d;
+    o.connect(filt); o.start();
+    oscs.push(o);
+  }
+  // sub sine 增厚
+  const sub = ctx.createOscillator();
+  sub.type = 'sine'; sub.frequency.value = 110;
+  const subG = ctx.createGain(); subG.gain.value = 0.4;
+  sub.connect(subG).connect(filt); sub.start();
+  oscs.push(sub);
+
+  filt.connect(amp).connect(S.trackGain[5]);
+  S.manNodes = { oscs, filt, amp, sub, subG, curNote: null };
+}
+function manNoteOn(midi) {
+  const n = S.manNodes; if (!n) return;
+  const t = S.ctx.currentTime;
+  const f = midiHz(midi);
+  n.oscs.forEach(o => { if (o.type === 'sawtooth') o.frequency.setTargetAtTime(f, t, 0.012); });
+  n.sub.frequency.setTargetAtTime(f / 2, t, 0.012);
+  n.amp.gain.cancelScheduledValues(t);
+  n.amp.gain.setTargetAtTime(0.5, t, 0.02);        // LD Follow 慢起音
+}
+function manNoteOff() {
+  const n = S.manNodes; if (!n) return;
+  const t = S.ctx.currentTime;
+  n.amp.gain.cancelScheduledValues(t);
+  n.amp.gain.setTargetAtTime(0, t, 0.06);
+}
+
+// ---------- 播放 ----------
+function play() {
+  if (!S.ctx) return;
+  if (S.playing) { pause(); return; }
+  stopAllSources();          // 清掉暂停前残留
+  clearLoopTimers();
+  S.playing = true;
+  S.startAt = S.ctx.currentTime + 0.05;
+  for (let i = 0; i < 5; i++) {
+    if (!S.buffers[i]) continue;
+    scheduleLoop(i);
+  }
+  // 恢复各轨道音量
+  for (let i = 0; i < 6; i++) applyTrackGain(i);
+  $('playBtn').textContent = '暂停'; $('playBtn').classList.add('playing');
+  $('status').textContent = '播放中';
+}
+function pause() {
+  S.playing = false;
+  clearLoopTimers();
+  for (let i = 0; i < 6; i++) { S.trackGain[i].gain.setTargetAtTime(0, S.ctx.currentTime, 0.01); }
+  setTimeout(() => {
+    if (!S.playing) {
+      stopAllSources();
+      manNoteOff();
+    }
+  }, 80);
+  $('playBtn').textContent = '开始'; $('playBtn').classList.remove('playing');
+  $('status').textContent = '已暂停';
+}
+let liveSources = new Set();
+function stopAllSources() {
+  liveSources.forEach(s => { try { s.stop(); } catch (e) {} });
+  liveSources.clear();
+}
+S.loopTimers = new Set();
+function clearLoopTimers() {
+  S.loopTimers.forEach(t => clearTimeout(t));
+  S.loopTimers.clear();
+}
+function scheduleLoop(i) {
+  // 循环调度: 每圈提前0.5s调度下一圈
+  const buf = S.buffers[i];
+  const sched = (when) => {
+    if (!S.playing) return;
+    if (when < S.ctx.currentTime) return;   // 过期调度丢弃(暂停恢复残留)
+    const src = S.ctx.createBufferSource();
+    src.buffer = buf; src.loop = false;
+    src.connect(S.trackGain[i]);
+    src.start(when);
+    liveSources.add(src);
+    src.onended = () => liveSources.delete(src);
+    // 下一圈
+    const next = when + buf.duration;
+    const tid = setTimeout(() => {
+      S.loopTimers.delete(tid);
+      if (S.playing) sched(next);
+    }, Math.max(0, (next - S.ctx.currentTime - 0.5) * 1000));
+    S.loopTimers.add(tid);
+  };
+  sched(S.startAt);
+}
+
+function applyTrackGain(i) {
+  if (!S.ctx) return;
+  const v = (S.trackOn[i] ? S.trackVol[i] : 0);
+  S.trackGain[i].gain.setTargetAtTime(v, S.ctx.currentTime, 0.03);
+}
+
+// ---------- 手势 ----------
+const Cam = { stream: null, timer: null, landmarker: null, on: false, busy: false };
+async function startCamera() {
+  if (Cam.on || Cam.busy) return;
+  Cam.busy = true;
+  try {
+    const camId = $('camSel').value || undefined;
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: camId
+        ? { deviceId: { exact: camId }, width: 640, height: 480, facingMode: 'user' }
+        : { width: 640, height: 480, facingMode: 'user' }
+    });
+    Cam.stream = stream;
+    const video = $('cam');
+    video.srcObject = stream;
+    await video.play();
+    $('videoWrap').style.display = 'block';
+
+    // MediaPipe Hands (CDN 动态import, 之前经验: 静态import阻塞)
+    const vision = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs');
+    const files = {
+      wasmLoaderPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task',
+    };
+    const hl = await vision.FilesetResolver.forVisionTasks(files.wasmLoaderPath);
+    const landmarker = await vision.HandLandmarker.createFromOptions(hl, {
+      baseOptions: { modelAssetPath: files.modelAssetPath, delegate: 'GPU' },
+      runningMode: 'VIDEO', numHands: 2,
+    });
+    Cam.landmarker = landmarker;
+
+    const canvas = $('camCanvas');
+    canvas.width = 640; canvas.height = 480;
+    const g = canvas.getContext('2d');
+    let lastT = -1;
+    const FPS = 30;
+    const iv = 1000 / FPS;
+
+    Cam.timer = setInterval(async () => {
+      if (video.readyState < 2) return;
+      const t = performance.now();
+      if (video.currentTime === lastT) return;
+      lastT = video.currentTime;
+      const res = landmarker.detectForVideo(video, t);
+      handleHands(res, g);
+    }, iv);
+
+    Cam.on = true;
+    $('camBtn').classList.add('playing');
+  } finally {
+    Cam.busy = false;
+  }
+}
+
+function stopCamera() {
+  if (!Cam.on) return;
+  if (Cam.timer) { clearInterval(Cam.timer); Cam.timer = null; }
+  if (Cam.stream) { Cam.stream.getTracks().forEach(t => t.stop()); Cam.stream = null; }
+  if (Cam.landmarker) { try { Cam.landmarker.close(); } catch (e) {} Cam.landmarker = null; }
+  const video = $('cam');
+  if (video) video.srcObject = null;
+  const g = $('camCanvas').getContext('2d');
+  if (g) g.clearRect(0, 0, 640, 480);
+  Cam.on = false;
+  S.gesture.active = false;          // 与「手离开」一致: 参数保持最后值, 仅停止手势tick
+  $('ovR').textContent = '--'; $('ovL').textContent = '--';
+  $('videoWrap').style.display = 'none';
+  $('camBtn').classList.remove('playing');
+}
+
+function handleHands(res, g) {
+  const hands = res?.landmarks || [];
+  g.clearRect(0, 0, 640, 480);
+  let rightY = null, leftY = null;
+  // MediaPipe handedness: 镜像画面里 "Left" = 用户右手
+  const hnd = res?.handednesses || res?.handedness || [];
+  for (let i = 0; i < hands.length; i++) {
+    const lm = hands[i];
+    const label = hnd[i]?.[0]?.categoryName || '';
+    // raw前置摄像头直读: MediaPipe标签即真实手(实测校准)
+    let isRight;
+    if (label) isRight = (label === 'Right');
+    else isRight = (lm[9].x < 0.5);   // 无标签时按位置: raw画面左半=用户右手
+    const y = lm[9].y;   // 中指根
+    const x = lm[9].x;
+    // 画圆点 (canvas叠加在镜像视频上, x需镜像才与画面一致)
+    g.fillStyle = isRight ? '#7fd0ff' : '#ffb07f';
+    g.beginPath();
+    g.arc((1 - x) * 640, y * 480, 14, 0, Math.PI * 2);
+    g.fill();
+    if (isRight) rightY = y; else leftY = y;
+  }
+  const prevActive = S.gesture.active;
+  S.gesture.active = hands.length > 0;
+  S.gesture.rightY = rightY ?? S.gesture.rightY;   // 手离开保持
+  S.gesture.leftY = leftY ?? S.gesture.leftY;
+  $('ovR').textContent = rightY == null ? '--' : calY(rightY).toFixed(2);
+  $('ovL').textContent = leftY == null ? '--' : calY(leftY).toFixed(2);
+}
+
+// ---------- 手势→参数 (对齐桌面版逻辑) ----------
+function gestureTick() {
+  if (!S.ctx || !S.gesture.active) return;
+  const manOn = S.trackOn[5];
+  const rY = S.gesture.rightY != null ? calY(S.gesture.rightY) : null;
+  const lY = S.gesture.leftY != null ? calY(S.gesture.leftY) : null;
+
+  if (manOn && rY != null) {
+    // EMA 平滑 0.6/0.4
+    S.smoothRY = S.smoothRY < 0 ? rY : S.smoothRY * 0.6 + rY * 0.4;
+    const chord = chordAt(loopPos());
+    if (chord !== S.lastChordSeen) {
+      // 和弦边界: 强制把当前手高重映射到新和弦(实时跟随和声)
+      S.lastChordSeen = chord;
+      const note0 = gestureToNote(S.smoothRY, CHORD_TONES[chord]);
+      if (note0 != null) {
+        S.gestureNote = note0;
+        S.lastRYForNote = S.smoothRY;
+        manNoteOn(note0);
+      }
+    } else if (Math.abs(S.smoothRY - S.lastRYForNote) > 0.05) {
+      // 和弦内: 手移动>5%才换音(防抖)
+      const note = gestureToNote(S.smoothRY, CHORD_TONES[chord]);
+      if (note != null && note !== S.gestureNote) {
+        S.gestureNote = note;
+        S.lastRYForNote = S.smoothRY;
+        manNoteOn(note);
+      }
+    }
+  }
+  if (manOn && lY != null) {
+    // 左手 → Man 滤波 200~8000 log
+    const hz = 200 * Math.pow(8000 / 200, 1 - lY);
+    if (S.manNodes) S.manNodes.filt.frequency.setTargetAtTime(hz, S.ctx.currentTime, 0.03);
+    S._manFilHz = hz;
+  }
+  if (!manOn) {
+    if (rY != null) {
+      S.masterVol = Math.max(0, Math.min(1.5, (1 - rY) * 1.5));   // 手高=响(校准值0=手在上方)
+      applyMaster();
+    }
+    if (lY != null) {
+      S.masterRevAmt = 1 - lY;   // 手高混响大
+      applyReverb();
+    }
+  }
+}
+setInterval(gestureTick, 50);
+
+// ---------- 语音控制 (WebSocket 流式, 对齐桌面版命令表) ----------
+const VOICE_KEYWORDS = {
+  "start": { act: "play" }, "pause": { act: "pause" },
+  "pad": { track: 0 }, "pluck": { track: 1 }, "bass": { track: 2 },
+  "bell": { track: 3 }, "drum": { track: 4 }, "man": { track: 5 },
+};
+const VOICE_ALIASES = {
+  "starts":"start","started":"start","star":"start","stark":"start","stat":"start","stout":"start","stop":"start","stocks":"start","stor":"start",
+  "paused":"pause","paws":"pause","pose":"pause","pos":"pause","polls":"pause","posts":"pause","pulse":"pause","post":"pause","poz":"pause","pausea":"pause",
+  "pat":"pad","bad":"pad","bet":"pad","pet":"pad","bat":"pad","put":"pad","but":"pad","pot":"pad","back":"pad","pack":"pad","bag":"pad","bed":"pad",
+  "plug":"pluck","plus":"pluck","plock":"pluck","plag":"pluck","plaque":"pluck","cluck":"pluck","bluck":"pluck","plank":"pluck","plunk":"pluck","block":"pluck","blood":"pluck","plot":"pluck","pollock":"pluck","bullock":"pluck","plok":"pluck","blag":"pluck",
+  "base":"bass","pass":"bass","bus":"bass","boss":"bass","bath":"bass","bars":"bass","bask":"bass","bast":"bass","past":"bass","pace":"bass","place":"bass","baz":"bass","busz":"bass",
+  "bel":"bell","bail":"bell","bill":"bell","pal":"bell","ball":"bell","bowl":"bell","bells":"bell","belle":"bell","bale":"bell","pell":"bell","bol":"bell","bal":"bell",
+  "know":"no","now":"no","not":"no","nope":"no","nau":"no","nou":"no",
+  "drums":"drum","dumb":"drum","dram":"drum","drome":"drum","drom":"drum","drem":"drum","drim":"drum","drummer":"drum","drumming":"drum","drummond":"drum","drone":"drum","drawn":"drum","drain":"drum","dam":"drum","damp":"drum","dan":"drum","don":"drum","dom":"drum","done":"drum","dum":"drum","some":"drum","come":"drum","from":"drum","thumb":"drum","rum":"drum","bum":"drum","pum":"drum","tum":"drum","strom":"drum","strum":"drum","job":"drum","john":"drum","trump":"drum","dram":"drum","dun":"drum","domm":"drum",
+  "men":"man","maan":"man","mann":"man","mahn":"man","ban":"man","pan":"man","can":"man","tan":"man","mun":"man","main":"man","mine":"man",
+};
+
+const Voice = {
+  active: false, stream: null, ws: null, node: null, ac: null,
+  buf: [], busy: false, lastCmdText: '', lastCmdAt: 0,
+};
+
+// 16k 重采样 + PCM16 编码的 AudioWorklet 处理器
+const VOICE_WORKLET = `
+class VProc extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.ratio = sampleRate / 16000;   // 48000/16000 = 3
+    this.left = 0;
+  }
+  process(inputs) {
+    const ch = inputs[0][0];
+    if (!ch) return true;
+    // 线性降采样到 16k (语音识别足够)
+    const step = this.ratio;
+    const out = new Float32Array(Math.floor(ch.length / step));
+    for (let i = 0, j = 0; j < out.length; j++, i += step) {
+      out[j] = ch[Math.floor(i)];
+    }
+    // float32 → int16
+    const pcm = new Int16Array(out.length);
+    for (let i = 0; i < out.length; i++) {
+      const s = Math.max(-1, Math.min(1, out[i]));
+      pcm[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+    }
+    this.port.postMessage(pcm.buffer, [pcm.buffer]);
+    return true;
+  }
+}
+registerProcessor('vproc', VProc);
+`;
+
+async function toggleVoice() {
+  if (Voice.active) { stopVoice(); return; }
+  const micId = $('micSel').value || undefined;
+  try {
+    Voice.stream = await navigator.mediaDevices.getUserMedia({
+      audio: micId ? { deviceId: { exact: micId } } : true,
+    });
+  } catch (e) {
+    $('status').textContent = '麦克风失败: ' + e.message;
+    return;
+  }
+  // WebSocket 连接 8791 流式 STT
+  const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/stt-ws';
+  try {
+    Voice.ws = new WebSocket(wsUrl);
+    Voice.ws.binaryType = 'arraybuffer';
+  } catch (e) {
+    $('status').textContent = 'WS 失败: ' + e.message;
+    return;
+  }
+  Voice.ws.onmessage = ev => {
+    let j; try { j = JSON.parse(ev.data); } catch (e) { return; }
+    if (j.t === 'partial') {
+      $('lastText').textContent = j.text;
+      $('voiceStat').textContent = '聆听';
+    } else if (j.t === 'cmd') {
+      $('lastText').textContent = j.text;
+      $('voiceStat').textContent = '执行';
+      execVoice(j.text);
+    }
+  };
+  Voice.ws.onclose = () => { if (Voice.active) stopVoice(); };
+  await new Promise(res => { Voice.ws.onopen = res; });
+
+  // AudioWorklet 抓原始 PCM 直发 (无 MediaRecorder 编码延迟)
+  Voice.ac = new AudioContext({ sampleRate: 48000 });
+  const src = Voice.ac.createMediaStreamSource(Voice.stream);
+  const blob = new Blob([VOICE_WORKLET], { type: 'application/javascript' });
+  await Voice.ac.audioWorklet.addModule(URL.createObjectURL(blob));
+  Voice.node = new AudioWorkletNode(Voice.ac, 'vproc');
+  Voice.node.port.onmessage = ev => {
+    if (Voice.ws && Voice.ws.readyState === 1) Voice.ws.send(ev.data);
+  };
+  src.connect(Voice.node);
+
+  Voice.active = true;
+  $('voiceBar').classList.add('on');
+  $('micBtn').textContent = '停止语音';
+  $('micBtn').classList.add('playing');
+  $('voiceStat').textContent = '聆听';
+}
+function stopVoice() {
+  Voice.active = false;
+  if (Voice.node) { try { Voice.node.disconnect(); } catch(e){} Voice.node = null; }
+  if (Voice.ac) { try { Voice.ac.close(); } catch(e){} Voice.ac = null; }
+  if (Voice.ws) { try { Voice.ws.close(); } catch(e){} Voice.ws = null; }
+  if (Voice.stream) Voice.stream.getTracks().forEach(t => t.stop());
+  Voice.stream = null;
+  $('voiceBar').classList.remove('on');
+  $('micBtn').textContent = '语音';
+  $('micBtn').classList.remove('playing');
+  $('voiceStat').textContent = '待命';
+}
+
+function execVoice(rawText) {
+  // 去重: 同一命令 1.5s 内不重复触发 (Vosk final+重述防抖)
+  const now = performance.now();
+  if (rawText === Voice.lastCmdText && now - Voice.lastCmdAt < 1500) return;
+  Voice.lastCmdText = rawText; Voice.lastCmdAt = now;
+  let text = rawText;
+  const words = text.split(/\s+/).map(w => VOICE_ALIASES[w] || w);
+  text = words.join(' ');
+  // no xxx 反向命令优先
+  const mNo = text.match(/\bno\s+(pad|pluck|bass|bell|drum|man)\b/);
+  if (mNo) { setTrack(['pad','pluck','bass','bell','drum','man'].indexOf(mNo[1]), false, text); return; }
+  if (/\b(start)\b/.test(text)) { doPlayPause(true, text); return; }
+  if (/\b(pause)\b/.test(text)) { doPlayPause(false, text); return; }
+  for (const kw of ['man','bell','drum','pluck','bass','pad']) {   // 长词优先
+    if (new RegExp('\\b' + kw + '\\b').test(text)) {
+      setTrack(['pad','pluck','bass','bell','drum','man'].indexOf(kw), true, text);
+      return;
+    }
+  }
+  showCmd('未匹配: ' + text);
+}
+function setTrack(i, on, text) {
+  S.trackOn[i] = on;
+  const el = document.querySelector(`.track[data-idx="${i}"] input[type=checkbox]`);
+  if (el) el.checked = on;
+  applyTrackGain(i);
+  if (i === 5) {
+    S.lastChordSeen = null;
+    if (!on) { manNoteOff(); S.gestureNote = null; S.smoothRY = -1; }
+  }
+  showCmd(`${text} → ${TRACKS[i].name} ${on ? '开' : '关'}`);
+}
+function doPlayPause(on, text) {
+  if (on && !S.playing) play();
+  if (!on && S.playing) pause();
+  showCmd(`${text} → ${on ? '开始' : '暂停'}`);
+}
+function showCmd(s) {
+  const el = $('lastCmd');
+  el.textContent = s; el.style.display = 'inline-block';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.style.display = 'none', 3000);
+}
+$('micBtn').addEventListener('click', () => toggleVoice().catch(e => $('status').textContent = '语音失败: ' + e.message));
+
+// ---------- 设备选择 (摄像头/麦克风) ----------
+async function loadDevices() {
+  let devs = [];
+  try { devs = await navigator.mediaDevices.enumerateDevices(); }
+  catch (e) { $('devRow').classList.add('on'); return; }
+  const cams = devs.filter(d => d.kind === 'videoinput');
+  const mics = devs.filter(d => d.kind === 'audioinput');
+  const fill = (sel, list, none) => {
+    sel.innerHTML = '';
+    if (!list.length) { sel.innerHTML = `<option value="">(${none})</option>`; return; }
+    list.forEach((d, i) => {
+      const o = document.createElement('option');
+      o.value = d.deviceId;
+      o.textContent = d.label || `${none} ${i + 1}`;
+      sel.appendChild(o);
+    });
+  };
+  fill($('camSel'), cams, '摄像头');
+  fill($('micSel'), mics, '麦克风');
+  $('devRow').classList.add('on');
+}
+$('devRefresh').addEventListener('click', loadDevices);
+// 页面加载即尝试列设备; 未授权时 label 为空, 首次开摄像头/麦克风后点刷新可看到名称
+loadDevices();
+
+// ---------- 主控 ----------
+function applyMaster() {
+  if (!S.ctx) return;
+  S.masterGain.gain.setTargetAtTime(S.masterVol, S.ctx.currentTime, 0.02);
+}
+function applyReverb() {
+  if (!S.ctx) return;
+  const t = S.ctx.currentTime;
+  S.revWet.gain.setTargetAtTime(S.masterRevAmt * 0.6, t, 0.05);
+  S.revDry.gain.setTargetAtTime(1 - S.masterRevAmt * 0.3, t, 0.05);
+}
+function applyMasterFilter() {
+  if (!S.ctx) return;
+  const norm = S.masterFilVal / 10;
+  S.masterFilHz = 200 * Math.pow(20000 / 200, norm);
+  const t = S.ctx.currentTime;
+  S.masterFilter.frequency.setTargetAtTime(S.masterFilHz, t, 0.02);
+  S.masterFilter.Q.value = S.masterRes * 12;
+}
+
+// ---------- HUD ----------
+function startHud() {
+  setInterval(() => {
+    const pos = loopPos();
+    const bar = Math.floor(pos / BAR_SEC) + 1;
+    const chord = chordAt(pos);
+    $('hudVol').textContent = S.masterVol.toFixed(2);
+    $('hudFil').textContent = S.manNodes && S.trackOn[5] && S._manFilHz
+      ? Math.round(S._manFilHz) : Math.round(S.masterFilHz);
+    $('hudChord').textContent = chord;
+    $('hudNote').textContent = S.gestureNote != null ? midiName(S.gestureNote) : '--';
+    $('hudBar').textContent = `${bar}/8`;
+  }, 100);
+}
+
+// ---------- UI 绑定 ----------
+$('startBtn').addEventListener('click', boot);
+$('playBtn').addEventListener('click', play);
+$('camBtn').addEventListener('click', () => {
+  if (Cam.on) { stopCamera(); return; }
+  startCamera().catch(e => { $('status').textContent = '摄像头失败: ' + e.message; });
+});
+
+document.querySelectorAll('.track').forEach(el => {
+  const i = +el.dataset.idx;
+  const cb = el.querySelector('input[type=checkbox]');
+  const rg = el.querySelector('input[type=range]');
+  const vol = el.querySelector('.vol');
+  cb.addEventListener('change', () => {
+    S.trackOn[i] = cb.checked;
+    applyTrackGain(i);
+    if (i === 5) {
+      S.lastChordSeen = null;   // Man切换后下一帧强制重映射和弦
+      if (!cb.checked) { manNoteOff(); S.gestureNote = null; S.smoothRY = -1; }
+    }
+  });
+  rg.addEventListener('input', () => {
+    S.trackVol[i] = +rg.value / 100;
+    vol.textContent = S.trackVol[i].toFixed(2);
+    applyTrackGain(i);
+  });
+});
+
+const bindBar = (id, fn) => {
+  const el = $(id);
+  const val = el.parentElement.querySelector('.val');
+  el.addEventListener('input', () => fn(+el.value, val));
+  return el;
+};
+S.masterFilVal = 10;
+bindBar('masterVol', (v, val) => { S.masterVol = v / 100; val.textContent = S.masterVol.toFixed(2); applyMaster(); });
+bindBar('masterFil', (v, val) => {
+  S.masterFilVal = v;
+  const hz = 200 * Math.pow(100, v / 10);
+  val.textContent = Math.round(hz) + ' Hz'; applyMasterFilter();
+});
+bindBar('masterRes', (v, val) => { S.masterRes = v / 100; val.textContent = S.masterRes.toFixed(2); applyMasterFilter(); });
+bindBar('masterRev', (v, val) => { S.masterRevAmt = v / 100; val.textContent = S.masterRevAmt.toFixed(2); applyReverb(); });
+</script>
+</body>
+</html>
